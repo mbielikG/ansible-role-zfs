@@ -1,0 +1,49 @@
+---
+# ------------------------------------------------------------------------------
+# ZFS Installation
+# ------------------------------------------------------------------------------
+
+- name: Install ZFS (Alpine)
+  community.general.apk:
+    name: "{{ item }}"
+    state: present
+    update_cache: true
+  loop:
+    - zfs
+
+- name: ensure ZFS kernel module is loaded (Alpine)
+  community.general.modprobe:
+    name: zfs
+
+
+# ------------------------------------------------------------------------------
+# Zrepl Installation
+
+# ZREPL for Alpine is only available in Edge-Testing, so for now I consider there is no
+# support for ZREPL on Alpine
+# ------------------------------------------------------------------------------
+
+
+# - when: zfs_zrepl_enabled
+#   block:
+#     - when: zfs_manage_repository | bool
+#       block:
+#         - name: import zrepl repo GPG key (Debian)
+#           ansible.builtin.apt_key:
+#             data: "{{ lookup('file', 'debian/zrepl-apt-key.asc') }}"
+#             id: E101418FD3D6FBCB9D65A62D708699FC5F2EBF16
+#             state: present
+
+#         - name: add zrepl repository (Debian)
+#           ansible.builtin.apt_repository:
+#             filename: zrepl
+#             repo: >-
+#               deb [arch=amd64] {{ zfs_zrepl_debian_repo_url }}/{{ ansible_distribution | lower }}
+#               {{ ansible_distribution_release | lower }}
+#               main
+#             state: present
+
+#     - name: install zrepl (Debian)
+#       ansible.builtin.apt:
+#         name: zrepl
+#         state: present
