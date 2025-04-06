@@ -13,6 +13,11 @@
   changed_when: true
   when: ansible_os_family | lower == 'archlinux'
 
+- name: Run kernel hooks (Alpine)
+  ansible.builtin.command: apk fix kernel-hooks
+  changed_when: true
+  when: ansible_os_family | lower == 'alpine'
+
 - name: restart zrepl
   ansible.builtin.systemd:
     name: zrepl

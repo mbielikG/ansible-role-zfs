@@ -7,7 +7,6 @@
     - "{{ ansible_distribution | lower }}.yml"
     - "{{ ansible_os_family | lower }}_{{ ansible_distribution_major_version }}.yml"
     - "{{ ansible_os_family | lower }}.yml"
-    
 
 - name: assert correctness of configuration
   tags: [zfs, always]
@@ -38,6 +37,28 @@
       - zfs_zrepl_debian_repo_url is string
     quiet: true
     fail_msg: configuration for ZFS Role is invalid, check your parameters
+
+- name: assert pre-requisites
+  tags: [zfs, always]
+  block:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - when: zfs_config_none_ioscheduler | length > 0
+      block:
+        - name: Ensure udev is running
+          ansible.builtin.assert:
+            that:
+              - >-
+                ('udev' in ansible_facts.services
+                  and ansible_facts.services['udev'].state in ['running', 'started'])
+                  or
+                ('udevd' in ansible_facts.services
+                  and ansible_facts.services['udevd'].state in ['running', 'started'])
+                  or
+                ('systemd-udevd.service' in ansible_facts.services
+                  and ansible_facts.services['systemd-udevd.service'].state in ['running', 'started'])
+            fail_msg: "udev is not running, but is required"
 
 - name: include installation tasks
   tags: [zfs, zfs_install, install]

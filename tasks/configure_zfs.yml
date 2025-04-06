@@ -9,6 +9,7 @@
   notify:
     - update initramfs (Debian)
     - mkinitcpio (Arch Linux)
+    - Run kernel hooks (Alpine)
 
 - name: configure ZFS
   ansible.builtin.template:
@@ -17,6 +18,8 @@
     owner: root
     group: root
     mode: "0644"
+  when:
+    - ansible_os_family != 'Alpine'
 
 - block:
     - name: get serial of devices
