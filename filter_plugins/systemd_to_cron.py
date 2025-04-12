@@ -420,6 +420,9 @@ def _parse_weekday(weekday_spec):
             
         # Handle individual weekday
         else:
+            # Skip part if empty
+            if not part:
+                continue
             # Validate weekday
             if part not in WEEKDAY_MAP and not (part.isdigit() and 0 <= int(part) <= 6):
                 raise AnsibleFilterError(
@@ -619,6 +622,156 @@ def _parse_time_components(time_str):
     
     return hour, minute, second, warnings
 
+def _simplify_crontab(expr, field_name, min_val, max_val):
+    """
+    Simplify a crontab-like expression by combining adjacent or overlapping ranges.
+    Preserves step notation and validates step values.
+    
+    Args:
+        expr (str): A string representing values and ranges, e.g., '6,4,1-3,6-0' or '9-17/2'.
+        min_val (int): The minimum value in the valid range (default 0).
+        max_val (int): The maximum value in the valid range (default 59).
+        
+    Returns:
+        str: A simplified expression with preserved valid step notation.
+    """
+    # Handle wildcard and empty cases
+    if expr == '*':
+        return '*'
+    if not expr:
+        return ""
+    
+    parts = expr.split(',')
+    
+    # Check if any part is a wildcard
+    if '*' in parts:
+        return '*'
+    
+    # Sort parts into step-based and non-step based
+    step_parts = []
+    regular_parts = []
+    
+    for part in parts:
+        if '/' in part:
+            # This part uses step notation - validate it
+            range_part, step_str = part.split('/')
+            
+            try:
+                step = int(step_str)
+                # Validate step value
+                if step <= 1 or step > max_val:
+                    # Invalid step value - treat as regular part without step
+                    if range_part == '*':
+                        # */1 is equivalent to *
+                        return '*'
+                    else:
+                        regular_parts.append(range_part)
+                    continue
+                
+                # Valid step - continue processing
+                if range_part == '*':
+                    step_parts.append(part)
+                elif '-' in range_part:
+                    start, end = map(int, range_part.split('-'))
+                    # Handle wraparound
+                    if start > end:
+                        # Split wraparound range with step into two parts
+                        if start <= max_val:
+                            step_parts.append(f"{start}-{max_val}/{step}")
+                        if min_val <= end:
+                            step_parts.append(f"{min_val}-{end}/{step}")
+                    else:
+                        step_parts.append(part)
+                else:
+                    # Single value with step
+                    try:
+                        val = int(range_part)
+                        if min_val <= val <= max_val:
+                            step_parts.append(part)
+                    except ValueError:
+                        continue
+            except ValueError:
+                # Invalid step format - treat as regular part
+                regular_parts.append(range_part)
+        else:
+            regular_parts.append(part)
+    
+    # Process regular parts as before
+    regular_values = set()
+    
+    for part in regular_parts:
+        if '-' in part:
+            start, end = map(int, part.split('-'))
+            if start <= end:
+                regular_values.update(range(start, end + 1))
+            else:
+                # Wraparound range
+                regular_values.update(range(start, max_val + 1))
+                regular_values.update(range(min_val, end + 1))
+        else:
+            # Single value
+            try:
+                regular_values.add(int(part))
+            except ValueError:
+                continue
+    
+    # Find continuous ranges in regular values
+    sorted_regular = sorted(regular_values)
+    regular_ranges = []
+    
+    if sorted_regular:
+        i = 0
+        while i < len(sorted_regular):
+            start = sorted_regular[i]
+            j = i
+            while j + 1 < len(sorted_regular) and sorted_regular[j + 1] == sorted_regular[j] + 1:
+                j += 1
+            end = sorted_regular[j]
+            
+            if start == end:
+                # Single value
+                regular_ranges.append(str(start))
+            elif end - start == 1:
+                # Exactly two adjacent values - use comma notation
+                regular_ranges.append(f"{start},{end}")
+            else:
+                # Range with three or more values - use hyphen notation
+                regular_ranges.append(f"{start}-{end}")
+            
+            i = j + 1
+    
+    # Check if all possible values are included
+    all_values = set(regular_values)
+    for part in step_parts:
+        range_part, step_str = part.split('/')
+        step = int(step_str)
+        
+        if range_part == '*':
+            all_values.update(range(min_val, max_val + 1, step))
+        elif '-' in range_part:
+            start, end = map(int, range_part.split('-'))
+            if start <= end:
+                all_values.update(range(start, end + 1, step))
+            else:
+                # Wraparound - already split into two parts in previous processing
+                pass
+        else:
+            # Single value with step
+            val = int(range_part)
+            if min_val <= val <= max_val:
+                all_values.add(val)
+                current = val + step
+                while current <= max_val:
+                    all_values.add(current)
+                    current += step
+    
+    if len(all_values) == max_val - min_val + 1:
+        return '*'
+    
+    # Combine the results, preserving step notation
+    result = regular_ranges + step_parts
+    return ','.join(result)
+
 
 def systemd_to_cron(systemd_timer):
     """
@@ -633,13 +786,21 @@ def systemd_to_cron(systemd_timer):
     """
     """Main conversion function with enhanced validation"""
     result = {
-        'minute': '0',
-        'hour': '0',
-        'day': '*',
-        'month': '*',
-        'weekday': '*',
+        'minute': '',
+        'hour': '',
+        'day': '',
+        'month': '',
+        'weekday': '',
         'warnings': []
     }
+    # result = {
+    #     'minute': '*',
+    #     'hour': '*',
+    #     'day': '*',
+    #     'month': '*',
+    #     'weekday': '*',
+    #     'warnings': []
+    # }
 
 
     try:
@@ -675,12 +836,18 @@ def systemd_to_cron(systemd_timer):
         result['minute'] = minute
         result['warnings'].extend(time_warnings)
 
-        # Component validation
-        _validate_cron_component(result['minute'], 'minute', 0, 59)
-        _validate_cron_component(result['hour'], 'hour', 0, 23)
-        _validate_cron_component(result['day'], 'day', 1, 31)
-        _validate_cron_component(result['month'], 'month', 1, 12)
-        _validate_cron_component(result['weekday'], 'weekday', 0, 6)
+          # Validate and simplify cron components
+        for field, (min_val, max_val) in {
+            'minute': (0, 59),
+            'hour': (0, 23),
+            'day': (1, 31),
+            'month': (1, 12),
+            'weekday': (0, 6)
+        }.items():
+            _validate_cron_component(result[field], field, min_val, max_val)
+            result[field] = _simplify_crontab(result[field], field, min_val, max_val)
+            _validate_cron_component(result[field], field, min_val, max_val)
+
 
         # Handle timezone warnings
         if calendar_parts['timezone']:
