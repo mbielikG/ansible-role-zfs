@@ -1,6 +1,9 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+#todo: Requires refactoring for better logic and simplicity and improve handling invalid/incomplete input formats,
+#todo: Include also normalization like in systemd.time
+
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
@@ -13,7 +16,7 @@ from ansible.module_utils.common.text.converters import to_native, to_text
 DOCUMENTATION = r'''
 ---
 name: systemd_to_cron
-author: Marek Bielik, with major assistance from Claude 3.7 Sonnet.
+author: Marek Bielik
 short_description: Converts systemd timer formats to Ansible cron parameters
 description:
     - Takes a systemd.time(7) calendar event expression.
@@ -118,6 +121,13 @@ SPECIAL_KEYWORDS = {
     'semiannually': {'minute': '0', 'hour': '0', 'day': '1', 'month': '1,7', 'weekday': '*'}
 }
 
+FIELD_RANGES = {
+    'minute': (0, 59),
+    'hour': (0, 23),
+    'day': (1, 31),
+    'month': (1, 12),
+    'weekday': (0, 6)
+}
 
 def _strip_leading_zeros(value):
     """
@@ -211,7 +221,7 @@ def _validate_cron_component(component, field_name, min_val, max_val):
             if not step.isdigit() or int(step) < 1 or int(step) > max_val:
                 raise AnsibleFilterError(
                     f"Invalid step value in {field_name}: {step}. "
-                    f"Must be a number between 1 and {max_val}."
+                    f"Must be a number between 2 and {max_val}."
                 )
                 
             # Validate base value if not '*'
@@ -362,6 +372,8 @@ def _parse_weekday(weekday_spec):
     parts = re.split(r'[\s,]+', weekday_spec.lower())
     
     for part in parts:
+        if not part:
+            continue
         # Handle range with step (Mon..Fri/2)
         if '..' in part and '/' in part:
             # Split out the step first
@@ -421,8 +433,6 @@ def _parse_weekday(weekday_spec):
         # Handle individual weekday
         else:
             # Skip part if empty
-            if not part:
-                continue
             # Validate weekday
             if part not in WEEKDAY_MAP and not (part.isdigit() and 0 <= int(part) <= 6):
                 raise AnsibleFilterError(
@@ -654,13 +664,20 @@ def _simplify_crontab(expr, field_name, min_val, max_val):
     for part in parts:
         if '/' in part:
             # This part uses step notation - validate it
-            range_part, step_str = part.split('/')
+            range_part, step = part.split('/')
             
             try:
-                step = int(step_str)
+                # step = int(step_str)
+                
                 # Validate step value
-                if step <= 1 or step > max_val:
-                    # Invalid step value - treat as regular part without step
+                if not step.isdigit() or int(step) < 1 or int(step) > max_val:
+                    raise AnsibleFilterError(
+                        f"Invalid step value in {field_name}: {step}. "
+                        f"Must be a number between 2 and {max_val}."
+                    )
+                
+                # Step value of 1 or max allowed value for the cron field has no effect - treat as regular part without step
+                if int(step) == 1 or int(step) == max_val:
                     if range_part == '*':
                         # */1 is equivalent to *
                         return '*'
@@ -837,14 +854,7 @@ def systemd_to_cron(systemd_timer):
         result['warnings'].extend(time_warnings)
 
           # Validate and simplify cron components
-        for field, (min_val, max_val) in {
-            'minute': (0, 59),
-            'hour': (0, 23),
-            'day': (1, 31),
-            'month': (1, 12),
-            'weekday': (0, 6)
-        }.items():
-            _validate_cron_component(result[field], field, min_val, max_val)
+        for field, (min_val, max_val) in FIELD_RANGES.items():
             result[field] = _simplify_crontab(result[field], field, min_val, max_val)
             _validate_cron_component(result[field], field, min_val, max_val)
 
