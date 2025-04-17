@@ -18,6 +18,11 @@
   changed_when: true
   when: ansible_os_family | lower == 'alpine'
 
+- name: restart crond
+  ansible.builtin.service:
+    name: crond
+    state: restarted
+
 - name: restart zrepl
   ansible.builtin.systemd:
     name: zrepl

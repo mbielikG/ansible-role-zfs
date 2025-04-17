@@ -1,0 +1,170 @@
+---
+# ------------------------------------------------------------------------------
+# ZFS Mount Generator
+# ------------------------------------------------------------------------------
+
+# Alpine uses OpenRC, not systemd, so it lacks a mount generator, making /etc/zfs/zfs-list.cache unnecessary.
+# It's kept for compatibility and possible future use.
+
+- when: zfs_use_zfs_mount_generator | bool
+  block:  # noqa: name[missing]
+    - name: enable the ZED script
+      ansible.builtin.file:
+        src: "{{ __zfs_zedletdir }}/history_event-zfs-list-cacher.sh"
+        dest: /etc/zfs/zed.d/history_event-zfs-list-cacher.sh
+        state: link
+      register: history_event_zedlet
+
+    - name: inform ZED about script change
+      ansible.builtin.service:
+        name: zfs-zed
+        state: restarted
+      when:
+        - zfs_service_zed_enabled
+        - history_event_zedlet.changed
+
+    - name: ensure mount generator cache directory exists
+      ansible.builtin.file:
+        path: /etc/zfs/zfs-list.cache
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: create generator cache content  # noqa: risky-shell-pipe
+      ansible.builtin.shell: |
+        # see history_event-zfs-list-cacher.sh
+        PROPS="name,mountpoint,canmount,atime,relatime,devices,exec\
+        ,readonly,setuid,nbmand,encroot,keylocation\
+        ,org.openzfs.systemd:requires,org.openzfs.systemd:requires-mounts-for\
+        ,org.openzfs.systemd:before,org.openzfs.systemd:after\
+        ,org.openzfs.systemd:wanted-by,org.openzfs.systemd:required-by\
+        ,org.openzfs.systemd:nofail,org.openzfs.systemd:ignore"
+
+        # include only datasets, that do not use legacy mounts
+        zfs list -H -t filesystem -o $PROPS -r -s name {{ zfs_pool.name | quote }} | awk '{if ($2 != "legacy") {print} }'
+
+      register: zfs_list_cache
+      changed_when: false
+      check_mode: false
+      loop: "{{ zfs_pools }}"
+      loop_control:
+        loop_var: zfs_pool
+        label: "{{ zfs_pool.name }}"
+
+    - name: create generator cache files
+      ansible.builtin.copy:
+        content: "{{ cache_entry.stdout }}"
+        dest: "/etc/zfs/zfs-list.cache/{{ cache_entry.zfs_pool.name }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ zfs_list_cache.results }}"
+      loop_control:
+        loop_var: cache_entry
+        label: "{{ cache_entry.zfs_pool.name }}"
+
+# ------------------------------------------------------------------------------
+# ZFS Services
+# ------------------------------------------------------------------------------
+
+- name: manage ZFS services
+  ansible.builtin.service:
+    name: "{{ item.name }}"
+    enabled: "{{ item.enabled }}"
+    state: "{{ item.enabled | ternary('started', 'stopped') }}"
+    runlevel: "{{ item.runlevel | default('default') }}"
+  loop_control:
+    label: "service: {{ item.name }}; enabled: {{ item.enabled }}; runlevel: {{ item.runlevel | default('default') }}"
+  loop:
+    - name: zfs-import
+      enabled: "{{ zfs_service_import_cache_enabled | bool or zfs_service_import_scan_enabled | bool }}"
+      runlevel: "boot"
+    - name: zfs-load-key
+      enabled: "{{ zfs_service_load_key_enabled | bool }}"
+      runlevel: "default"
+    - name: zfs-mount
+      enabled: "{{ zfs_service_mount_enabled | bool }}"
+      runlevel: "boot"
+    - name: zfs-share
+      enabled: "{{ zfs_service_share_enabled | bool }}"
+      runlevel: "default"
+    - name: zfs-zed
+      enabled: "{{ zfs_service_zed_enabled | bool }}"
+      runlevel: "default"
+
+# ------------------------------------------------------------------------------
+# ZFS Scrub Service
+# ------------------------------------------------------------------------------
+
+- block:  # noqa: name[missing]
+    - name: remove all zpool scrub crontab entries
+      ansible.builtin.lineinfile:
+        path: /etc/crontabs/root
+        state: absent
+        regexp: "{{ item }}"
+      loop:
+        - "^#Ansible: zfs_scrub_pool_"
+        - "/usr/sbin/zpool scrub"
+
+    - name: create zpool scrub crontab entries
+      ansible.builtin.cron:
+        name: "zfs_scrub_pool_{{ _pool_name }}"
+        user: root
+        state: present
+        job: "/usr/sbin/zpool scrub {{ _pool_name }}"
+        minute: "{{ __zfs_scrub_cron_schedule['minute'] }}"
+        hour: "{{ __zfs_scrub_cron_schedule['hour'] }}"
+        day: "{{ __zfs_scrub_cron_schedule['day'] }}"
+        month: "{{ __zfs_scrub_cron_schedule['month'] }}"
+        weekday: "{{ __zfs_scrub_cron_schedule['weekday'] }}"
+      notify: restart crond
+      loop: "{{ zfs_pools | selectattr('scrub', 'defined') | selectattr('scrub', '==', true) | map(attribute='name') | list }}"
+      loop_control:
+        loop_var: _pool_name
+      when: zfs_pools | selectattr('scrub', 'defined')
+
+
+
+# ------------------------------------------------------------------------------
+# ZFS Trim Service
+# ------------------------------------------------------------------------------
+
+- block:  # noqa: name[missing]
+    - name: remove all zpool trim crontab entries
+      ansible.builtin.lineinfile:
+        path: /etc/crontabs/root
+        state: absent
+        regexp: "{{ item }}"
+      loop:
+        - "^#Ansible: zfs_trim_pool_"
+        - "/usr/sbin/zpool trim"
+
+    - name: create zpool trim crontab entries
+      ansible.builtin.cron:
+        name: "zfs_trim_pool_{{ _pool_name }}"
+        user: root
+        state: present
+        job: "/usr/sbin/zpool trim {{ _pool_name }}"
+        minute: "{{ __zfs_trim_cron_schedule['minute'] }}"
+        hour: "{{ __zfs_trim_cron_schedule['hour'] }}"
+        day: "{{ __zfs_trim_cron_schedule['day'] }}"
+        month: "{{ __zfs_trim_cron_schedule['month'] }}"
+        weekday: "{{ __zfs_trim_cron_schedule['weekday'] }}"
+      notify: restart crond
+      loop: "{{ zfs_pools | selectattr('trim', 'defined') | selectattr('trim', '==', true) | map(attribute='name') | list }}"
+      loop_control:
+        loop_var: _pool_name
+      when: zfs_pools | selectattr('trim', 'defined')
+
+
+# ------------------------------------------------------------------------------
+# ZREPL Service
+# ------------------------------------------------------------------------------
+
+# - name: manage zrepl service
+#   ansible.builtin.systemd:
+#     name: zrepl
+#     enabled: "{{ zfs_zrepl_enabled | bool }}"
+#     state: "{{ zfs_zrepl_enabled | bool | ternary('started', 'stopped') }}"
+#   when: ('zrepl.service' in ansible_facts.services)

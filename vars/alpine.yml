@@ -1,2 +1,5 @@
 ---
 __zfs_zedletdir: /usr/libexec/zfs/zed.d
+
+__zfs_scrub_cron_schedule: "{{ zfs_scrub_schedule | systemd_to_cron }}"
+__zfs_trim_cron_schedule: "{{ zfs_trim_schedule | systemd_to_cron }}"

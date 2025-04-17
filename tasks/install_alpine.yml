@@ -15,12 +15,20 @@
   community.general.modprobe:
     name: zfs
 
+- name: ensure ZFS kernel module is loaded in boot (Alpine)
+  ansible.builtin.copy:
+    content: zfs
+    dest: /etc/modules-load.d/zfs.conf
+    owner: root
+    group: root
+    mode: "0644"
 
 # ------------------------------------------------------------------------------
 # Zrepl Installation
 
-# ZREPL for Alpine is only available in Edge-Testing, so for now I consider there is no
-# support for ZREPL on Alpine
+# ZREPL package for Alpine is only available in Edge-Testing (2025-04-17),
+# so for now I consider it unsupported. It still can be installed manually as binaries
+# or from source and managed by this role
 # ------------------------------------------------------------------------------
 
 

@@ -1,4 +1,16 @@
 ---
+- name: check zrepl command availability
+  ansible.builtin.command:
+    cmd: command -v zrepl
+  register: __zrepl_cmd_output
+  when: zfs_zrepl_enabled | bool
+  changed_when: false
+
+- name: fail when zrepl unavailable
+  ansible.builtin.fail:
+    msg: "zfs_zrepl_enabled is true but zrepl command is not available"
+  when: __zrepl_cmd_output.rc != 0
+
 - name: configure zrepl
   ansible.builtin.template:
     src: etc/zrepl/zrepl.yml.j2
