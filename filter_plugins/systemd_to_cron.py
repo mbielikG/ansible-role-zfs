@@ -790,89 +790,6 @@ def _simplify_crontab(expr, field_name, min_val, max_val):
     return ','.join(result)
 
 
-def systemd_to_cron(systemd_timer):
-    """
-    Convert a systemd timer format to Ansible cron parameters
-    
-    Args:
-        systemd_timer (str): The systemd timer format string
-        
-    Returns:
-        dict: A dictionary with keys 'minute', 'hour', 'day', 'month', 'weekday'
-              compatible with Ansible's cron module, plus 'warnings' and 'error' fields
-    """
-    """Main conversion function with enhanced validation"""
-    result = {
-        'minute': '',
-        'hour': '',
-        'day': '',
-        'month': '',
-        'weekday': '',
-        'warnings': []
-    }
-    # result = {
-    #     'minute': '*',
-    #     'hour': '*',
-    #     'day': '*',
-    #     'month': '*',
-    #     'weekday': '*',
-    #     'warnings': []
-    # }
-
-
-    try:
-        # Validate input type and presence
-        if not isinstance(systemd_timer, str) or not systemd_timer.strip():
-            raise AnsibleFilterError(
-                "Invalid input type. Expected non-empty string, got: "
-                f"{type(systemd_timer)}"
-            )
-
-        systemd_timer = systemd_timer.strip()
-
-        # Handle special keywords first
-        if systemd_timer.lower() in SPECIAL_KEYWORDS:
-            result.update(SPECIAL_KEYWORDS[systemd_timer.lower()])
-            return result
-
-        # Parse systemd components
-        calendar_parts = _parse_systemd_calendar(systemd_timer)
-        
-        # Validate weekday specification
-        result['weekday'] = _parse_weekday(calendar_parts['weekday'])
-        
-        # Validate date components
-        year, month, day, date_warnings = _parse_date_components(calendar_parts['date'])
-        result['month'] = month
-        result['day'] = day
-        result['warnings'].extend(date_warnings)
-        
-        # Validate time components
-        hour, minute, second, time_warnings = _parse_time_components(calendar_parts['time'])
-        result['hour'] = hour
-        result['minute'] = minute
-        result['warnings'].extend(time_warnings)
-
-          # Validate and simplify cron components
-        for field, (min_val, max_val) in FIELD_RANGES.items():
-            result[field] = _simplify_crontab(result[field], field, min_val, max_val)
-            _validate_cron_component(result[field], field, min_val, max_val)
-
-
-        # Handle timezone warnings
-        if calendar_parts['timezone']:
-            result['warnings'].append(
-                f"Ignored timezone specification: {calendar_parts['timezone']}"
-            )
-
-        return {k: v for k, v in result.items() if v is not None}
-
-    except AnsibleFilterError:
-        raise  # Re-raise properly annotated errors
-    except Exception as e:
-        raise AnsibleFilterError(
-            f"Failed to convert systemd timer '{systemd_timer}': {to_native(e)}"
-        ) from e
 
 
 class FilterModule(object):
@@ -881,5 +798,88 @@ class FilterModule(object):
     def filters(self):
         """Return a dictionary of filters provided by this module"""
         return {
-            'systemd_to_cron': systemd_to_cron
+            'systemd_to_cron': self._systemd_to_cron
         }
+    def _systemd_to_cron(self, systemd_timer):
+        """
+        Convert a systemd timer format to Ansible cron parameters
+
+        Args:
+            systemd_timer (str): The systemd timer format string
+
+        Returns:
+            dict: A dictionary with keys 'minute', 'hour', 'day', 'month', 'weekday'
+                  compatible with Ansible's cron module, plus 'warnings' and 'error' fields
+        """
+        """Main conversion function with enhanced validation"""
+        result = {
+            'minute': '',
+            'hour': '',
+            'day': '',
+            'month': '',
+            'weekday': '',
+            'warnings': []
+        }
+        # result = {
+        #     'minute': '*',
+        #     'hour': '*',
+        #     'day': '*',
+        #     'month': '*',
+        #     'weekday': '*',
+        #     'warnings': []
+        # }
+
+
+        try:
+            # Validate input type and presence
+            if not isinstance(systemd_timer, str) or not systemd_timer.strip():
+                raise AnsibleFilterError(
+                    "Invalid input type. Expected non-empty string, got: "
+                    f"{type(systemd_timer)}"
+                )
+
+            systemd_timer = systemd_timer.strip()
+
+            # Handle special keywords first
+            if systemd_timer.lower() in SPECIAL_KEYWORDS:
+                result.update(SPECIAL_KEYWORDS[systemd_timer.lower()])
+                return result
+
+            # Parse systemd components
+            calendar_parts = _parse_systemd_calendar(systemd_timer)
+
+            # Validate weekday specification
+            result['weekday'] = _parse_weekday(calendar_parts['weekday'])
+
+            # Validate date components
+            year, month, day, date_warnings = _parse_date_components(calendar_parts['date'])
+            result['month'] = month
+            result['day'] = day
+            result['warnings'].extend(date_warnings)
+
+            # Validate time components
+            hour, minute, second, time_warnings = _parse_time_components(calendar_parts['time'])
+            result['hour'] = hour
+            result['minute'] = minute
+            result['warnings'].extend(time_warnings)
+
+              # Validate and simplify cron components
+            for field, (min_val, max_val) in FIELD_RANGES.items():
+                result[field] = _simplify_crontab(result[field], field, min_val, max_val)
+                _validate_cron_component(result[field], field, min_val, max_val)
+
+
+            # Handle timezone warnings
+            if calendar_parts['timezone']:
+                result['warnings'].append(
+                    f"Ignored timezone specification: {calendar_parts['timezone']}"
+                )
+
+            return {k: v for k, v in result.items() if v is not None}
+
+        except AnsibleFilterError:
+            raise  # Re-raise properly annotated errors
+        except Exception as e:
+            raise AnsibleFilterError(
+                f"Failed to convert systemd timer '{systemd_timer}': {to_native(e)}"
+            ) from e
