@@ -67,6 +67,10 @@
     - name: create 'zpool create' command
       ansible.builtin.set_fact:
         zpool_create_command: >-
+          set -o pipefail;
+          {% if zfs_pool.filesystem_properties['keylocation'] == 'prompt' and zfs_pool.keystring is string %}
+          echo {{ zfs_pool.keystring | quote }} |
+          {% endif %}
           zpool create
           {{ '-d ' if zfs_pool.dont_enable_features | default(false) | bool else '' }}
           {% for property, value in (prepared_zpool_properties.properties | dictsort) %}
@@ -85,7 +89,7 @@
         verbosity: 1
 
     - name: create ZPool '{{ zfs_pool.name }}'
-      ansible.builtin.command: "{{ zpool_create_command }}"
+      ansible.builtin.shell: "{{ zpool_create_command }}"
       changed_when: true
 
 
