@@ -1,8 +1,7 @@
 ---
 - name: get list of available zpools
-  ansible.builtin.shell: "set -o pipefail; zpool list | awk 'FNR >1' | awk '{print $1}'"
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    cmd: zpool list -H -o name
   register: available_zpools
   changed_when: false
   check_mode: false
@@ -14,6 +13,18 @@
   register: importable_zpools
   changed_when: false
   check_mode: false
+  when: ansible_os_family != 'Alpine'
+
+- name: get list of importable zpools (Alpine)
+  ansible.builtin.shell: |
+    set -o pipefail
+    zpool import | awk '/pool:/ {print $2}'
+  args:
+    executable: /bin/sh
+  register: importable_zpools
+  changed_when: false
+  check_mode: false
+  when: ansible_os_family == 'Alpine'
 
 - name: include single pool management tasks
   ansible.builtin.include_tasks: manage_pool.yml

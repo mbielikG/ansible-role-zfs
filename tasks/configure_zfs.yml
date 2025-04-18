@@ -21,7 +21,8 @@
   when:
     - ansible_os_family != 'Alpine'
 
-- block:
+- when: zfs_config_none_ioscheduler | length > 0
+  block:
     - name: get serial of devices
       ansible.builtin.command: "udevadm info -q property {{ item }}"
       register: device_properties
