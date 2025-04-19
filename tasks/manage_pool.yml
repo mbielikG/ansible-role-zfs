@@ -88,7 +88,8 @@
         msg: "{{ zpool_create_command }}"
         verbosity: 1
 
-    - name: create ZPool '{{ zfs_pool.name }}'
+    # using shell instead of command because of the pipe used in the 'zpool create' command
+    - name: create ZPool '{{ zfs_pool.name }}'  # noqa: command-instead-of-shell
       ansible.builtin.shell: "{{ zpool_create_command }}"
       changed_when: true
 
