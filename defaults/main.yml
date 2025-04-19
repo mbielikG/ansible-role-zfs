@@ -35,6 +35,8 @@ zfs_service_share_enabled: false
 zfs_service_volume_wait_enabled: true
 # ZFS Event Daemon (zed)
 zfs_service_zed_enabled: false
+# ZFS zfs-load-key service(Alpine)
+zfs_service_load_key_enabled: false
 
 # use systemd mount generator, to mount ZVolumes via systemd
 zfs_use_zfs_mount_generator: false
