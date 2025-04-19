@@ -9,7 +9,9 @@
 - name: fail when zrepl unavailable
   ansible.builtin.fail:
     msg: "zfs_zrepl_enabled is true but zrepl command is not available"
-  when: __zrepl_cmd_output.rc != 0
+  when:
+    - zfs_zrepl_enabled | bool
+    - __zrepl_cmd_output.rc != 0
 
 - name: configure zrepl
   ansible.builtin.template:
