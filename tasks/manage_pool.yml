@@ -79,8 +79,8 @@
           {% for property, value in (prepared_dataset_properties.properties | dictsort) %}
           -O {{ (property ~ '=' ~ value) | quote }}
           {% endfor %}
-          {{ zfs_pool.name }}
           {{ zfs_pool.extra_create_options | default('') }}
+          {{ zfs_pool.name }}
           {{ zfs_pool.vdev | regex_replace('\n\s*', ' ') }}
 
     - name: print ZPool creation command
